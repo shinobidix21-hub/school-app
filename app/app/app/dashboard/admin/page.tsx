@@ -6,28 +6,80 @@ import SupportCentre from '@/components/SupportCentre';
 export default function AdminDashboard() {
   const [userId, setUserId] = useState('');
   const [students, setStudents] = useState<any[]>([]);
+  const [parents, setParents] = useState<any[]>([]);
+  const [statusMsg, setStatusMsg] = useState('');
+
+  // New Student Form State
+  const [studentName, setStudentName] = useState('');
+  const [gradeLevel, setGradeLevel] = useState('');
+  const [parentId, setParentId] = useState('');
+
+  // Community Alert Form State
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
   const [eventDate, setEventDate] = useState('');
   const [requiresParentParticipation, setRequiresParentParticipation] = useState(false);
+
+  // School Fees Form State
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [totalFees, setTotalFees] = useState('');
   const [amountPaid, setAmountPaid] = useState('');
-  const [statusMsg, setStatusMsg] = useState('');
 
-  useEffect(() => {
-    async function loadAdminData() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) setUserId(user.id);
+  const fetchStudentsAndParents = async () => {
+    const { data: studentRows } = await supabase
+      .from('students')
+      .select('id, full_name, grade_level, parent_id')
+      .order('full_name', { ascending: true });
 
-      const { data: studentRows } = await supabase.from('students').select('id, full_name, grade_level');
-      if (studentRows && studentRows.length > 0) {
-        setStudents(studentRows);
+    if (studentRows) {
+      setStudents(studentRows);
+      if (studentRows.length > 0 && !selectedStudentId) {
         setSelectedStudentId(studentRows[0].id);
       }
     }
-    loadAdminData();
+
+    const { data: parentRows } = await supabase
+      .from('profiles')
+      .select('id, full_name, email')
+      .eq('role', 'parent')
+      .order('full_name', { ascending: true });
+
+    if (parentRows) {
+      setParents(parentRows);
+      if (parentRows.length > 0 && !parentId) {
+        setParentId(parentRows[0].id);
+      }
+    }
+  };
+
+  useEffect(() => {
+    async function init() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) setUserId(user.id);
+      await fetchStudentsAndParents();
+    }
+    init();
   }, []);
+
+  const handleAddStudent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setStatusMsg('');
+
+    const { error } = await supabase.from('students').insert({
+      full_name: studentName,
+      grade_level: gradeLevel,
+      parent_id: parentId || null,
+    });
+
+    if (error) {
+      setStatusMsg(`Error adding student: ${error.message}`);
+    } else {
+      setStatusMsg(`Student "${studentName}" added and linked to parent.`);
+      setStudentName('');
+      setGradeLevel('');
+      await fetchStudentsAndParents();
+    }
+  };
 
   const handlePublishAlert = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,7 +112,11 @@ export default function AdminDashboard() {
       { onConflict: 'student_id' }
     );
     if (error) setStatusMsg(error.message);
-    else setStatusMsg('Student fee record saved.');
+    else {
+      setStatusMsg('Student fee record saved.');
+      setTotalFees('');
+      setAmountPaid('');
+    }
   };
 
   return (
@@ -68,6 +124,47 @@ export default function AdminDashboard() {
       <h1 className="text-2xl font-bold">Administrator Dashboard</h1>
       {statusMsg && <p className="bg-blue-50 text-blue-800 p-3 rounded-lg text-sm">{statusMsg}</p>}
 
+      {/* 1. Register Student & Link Parent */}
+      <form onSubmit={handleAddStudent} className="bg-white p-6 rounded-xl shadow-sm border space-y-3">
+        <h2 className="text-lg font-bold">Register Student & Link Parent</h2>
+        <input
+          type="text"
+          placeholder="Student Full Name"
+          className="w-full border p-2 rounded"
+          value={studentName}
+          onChange={(e) => setStudentName(e.target.value)}
+          required
+        />
+        <input
+          type="text"
+          placeholder="Class / Grade Level (e.g., Grade 6 or Senior 2)"
+          className="w-full border p-2 rounded"
+          value={gradeLevel}
+          onChange={(e) => setGradeLevel(e.target.value)}
+          required
+        />
+        <div>
+          <label className="block text-xs text-slate-500 mb-1">Assign Parent Account</label>
+          <select
+            className="w-full border p-2 rounded"
+            value={parentId}
+            onChange={(e) => setParentId(e.target.value)}
+            required
+          >
+            <option value="">-- Select a Registered Parent --</option>
+            {parents.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.full_name} ({p.email})
+              </option>
+            ))}
+          </select>
+        </div>
+        <button type="submit" className="bg-indigo-600 text-white px-4 py-2 rounded text-sm font-semibold">
+          Add Student
+        </button>
+      </form>
+
+      {/* 2. Send Community Alert */}
       <form onSubmit={handlePublishAlert} className="bg-white p-6 rounded-xl shadow-sm border space-y-3">
         <h2 className="text-lg font-bold">Send Community Alert</h2>
         <input
@@ -105,6 +202,7 @@ export default function AdminDashboard() {
         </button>
       </form>
 
+      {/* 3. Update School Fees */}
       <form onSubmit={handleUpdateFees} className="bg-white p-6 rounded-xl shadow-sm border space-y-3">
         <h2 className="text-lg font-bold">Update School Fees & Payments</h2>
         <select
